@@ -87,12 +87,17 @@ export async function POST(request) {
     if (action === 'authorize') {
       const { clientMac, voucherCode } = body;
       const authUrl = `${apiBase}/sites/${siteId}/hotspot/ext-portal/auth`;
+      console.log('Omada Auth Request:', { authUrl, clientMac, voucherCode });
+      
       const res = await fetch(authUrl, {
         method: 'POST',
         headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientMac, voucherCode })
       });
-      return NextResponse.json(await res.json());
+      
+      const result = await res.json();
+      console.log('Omada Auth Response:', result);
+      return NextResponse.json(result);
     }
 
     if (action === 'getStatus') {
