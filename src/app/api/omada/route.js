@@ -28,6 +28,11 @@ async function getValidToken(config) {
 
   // Need new token
   let sanitizedBaseUrl = config.baseUrl.replace(/\/$/, "").replace(/\/openapi\/v1\/?$/, "");
+  
+  // Force HTTPS for port 443
+  if (sanitizedBaseUrl.includes(':443')) {
+    sanitizedBaseUrl = sanitizedBaseUrl.replace('http://', 'https://');
+  }
   if (!sanitizedBaseUrl.startsWith("http")) sanitizedBaseUrl = "https://" + sanitizedBaseUrl;
   
   const safeOmadacId = (config.omadacId || "").trim();
@@ -74,6 +79,11 @@ export async function POST(request) {
     const accessToken = await getValidToken(config);
     const authHeader = `AccessToken=${accessToken}`;
     let sanitizedBaseUrl = config.baseUrl.replace(/\/$/, "").replace(/\/openapi\/v1\/?$/, "");
+    
+    // Force HTTPS for port 443
+    if (sanitizedBaseUrl.includes(':443')) {
+        sanitizedBaseUrl = sanitizedBaseUrl.replace('http://', 'https://');
+    }
     if (!sanitizedBaseUrl.startsWith("http")) sanitizedBaseUrl = "https://" + sanitizedBaseUrl;
     const safeOmadacId = (config.omadacId || "").trim();
     const apiBase = `${sanitizedBaseUrl}/openapi/v1${safeOmadacId ? `/${safeOmadacId}` : ""}`;
@@ -86,13 +96,14 @@ export async function POST(request) {
 
     if (action === 'authorize') {
       const { clientMac, voucherCode } = body;
+      const normalizedMac = (clientMac || "").replace(/:/g, "-").toUpperCase();
       const authUrl = `${apiBase}/sites/${siteId}/hotspot/ext-portal/auth`;
-      console.log('Omada Auth Request:', { authUrl, clientMac, voucherCode });
+      console.log('Omada Auth Request:', { authUrl, normalizedMac, voucherCode });
       
       const res = await fetch(authUrl, {
         method: 'POST',
         headers: { 'Authorization': authHeader, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientMac, voucherCode })
+        body: JSON.stringify({ clientMac: normalizedMac, voucherCode })
       });
       
       const result = await res.json();
@@ -100,21 +111,47 @@ export async function POST(request) {
       return NextResponse.json(result);
     }
 
+    if (action === 'getHealth') {
+      try {
+        const sitesRes = await fetch(`${apiBase}/sites`, { headers: { 'Authorization': authHeader } });
+        const sites = await sitesRes.json();
+        
+        const apsRes = await fetch(`${apiBase}/sites/${siteId}/aps`, { headers: { 'Authorization': authHeader } });
+        const aps = await apsRes.json();
+        
+        const clientsRes = await fetch(`${apiBase}/sites/${siteId}/clients`, { headers: { 'Authorization': authHeader } });
+        const clients = await clientsRes.json();
+
+        return NextResponse.json({
+          errorCode: 0,
+          result: {
+            sitesCount: sites.result?.data?.length || 0,
+            apsCount: aps.result?.data?.length || 0,
+            clientsCount: clients.result?.data?.length || 0,
+            raw: { sites, aps, clients }
+          }
+        });
+      } catch (e) {
+        return NextResponse.json({ error: 'Health check failed', details: e.message });
+      }
+    }
+
     if (action === 'getStatus') {
       const { clientMac } = body;
       if (!clientMac) return NextResponse.json({ error: 'Missing clientMac' }, { status: 400 });
+      const normalizedMac = clientMac.replace(/:/g, "-").toUpperCase();
 
       // Fetch Clients
       const clientsRes = await fetch(`${apiBase}/sites/${siteId}/clients`, { headers: { 'Authorization': authHeader } });
       const clientsData = await clientsRes.json();
-      const onlineClient = (clientsData.result?.data || []).find(c => c.mac === clientMac);
+      const onlineClient = (clientsData.result?.data || []).find(c => c.mac === normalizedMac);
 
       // Fetch Vouchers
       const vouchersRes = await fetch(`${apiBase}/sites/${siteId}/hotspot/vouchers`, { headers: { 'Authorization': authHeader } });
       const vouchersData = await vouchersRes.json();
       const vouchers = vouchersData.result?.data || [];
       
-      let matchedVoucher = vouchers.find(v => v.mac === clientMac);
+      let matchedVoucher = vouchers.find(v => v.mac === normalizedMac);
       if (!matchedVoucher && onlineClient?.voucherCode) {
           matchedVoucher = vouchers.find(v => v.code === onlineClient.voucherCode);
       }

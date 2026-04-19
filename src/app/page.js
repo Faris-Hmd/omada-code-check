@@ -22,6 +22,7 @@ function PortalContent() {
   });
 
   const [status, setStatus] = useState(null);
+  const [health, setHealth] = useState(null);
   const [view, setView] = useState('loading');
   const [voucherCode, setVoucherCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -124,6 +125,21 @@ function PortalContent() {
     setLoading(false);
   };
 
+  const fetchHealth = async () => {
+    try {
+      const res = await fetch('/api/omada', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'getHealth' })
+      });
+      const data = await res.json();
+      if (data.errorCode === 0) {
+        setHealth(data.result);
+      } else {
+        setError('Health check failed: ' + (data.msg || 'Unknown error'));
+      }
+    } catch (err) { setError('Connection error during health check'); }
+  };
+
   const formatBytes = (bytes) => {
     if (!bytes || bytes < 0) return '0 B';
     const k = 1024;
@@ -158,6 +174,20 @@ function PortalContent() {
       <div className="glass-card" style={{ marginBottom: '2rem', textAlign: 'center', borderBottom: '2px solid var(--primary)' }}>
         <h1 className="gradient-text" style={{ fontSize: '2.5rem' }}>WiFi Portal</h1>
         <p style={{ color: 'var(--muted)', marginTop: '0.5rem' }}>Device: <span style={{ color: 'var(--secondary)' }}>{clientInfo.mac || 'Identifying...'}</span></p>
+        
+        <div style={{ marginTop: '1rem' }}>
+          <button onClick={fetchHealth} className="btn" style={{ fontSize: '0.7rem', padding: '0.4rem 0.8rem', background: 'rgba(255,255,255,0.05)', color: 'var(--muted)' }}>
+            Check Connection Info
+          </button>
+          
+          {health && (
+            <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem', justifyContent: 'center', fontSize: '0.8rem' }}>
+              <div className="badge badge-muted">Sites: {health.sitesCount}</div>
+              <div className="badge badge-muted">APs: {health.apsCount}</div>
+              <div className="badge badge-muted">Users: {health.clientsCount}</div>
+            </div>
+          )}
+        </div>
       </div>
 
       {!config.isConfigured && (
