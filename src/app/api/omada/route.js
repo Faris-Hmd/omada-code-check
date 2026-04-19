@@ -1,50 +1,24 @@
 import { NextResponse } from 'next/server';
 
-// Allow connections to local Omada Controllers that use self-signed SSL certificates
+// Allow connections to Omada Controllers that use self-signed SSL certificates
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 // ============================================================
-// Config: reads from environment variables (Vercel) first,
-// falls back to omada-config.json (local dev)
+// HARDCODED CONFIG — Omada OC200 Controller
 // ============================================================
+const OMADA_CONFIG = {
+  baseUrl: '192.168.1.117',
+  omadacId: '68db34ef6433d085eb685a0577c90675',
+  clientId: '82278e730b6244778ab8f99748d20978',
+  clientSecret: '386b5d72b2634ea7b09b08351e91df64',
+  siteId: '68aca8d1dd81920e684cfff0',
+};
+
 let cachedToken = null;
 let cachedTokenExpiry = 0;
 
-async function readConfig() {
-  // Prefer environment variables (Vercel deployment)
-  if (process.env.OMADA_BASE_URL) {
-    return {
-      baseUrl: process.env.OMADA_BASE_URL,
-      omadacId: process.env.OMADA_OMADAC_ID || '',
-      clientId: process.env.OMADA_CLIENT_ID || '',
-      clientSecret: process.env.OMADA_CLIENT_SECRET || '',
-      siteId: process.env.OMADA_SITE_ID || '',
-    };
-  }
-
-  // Fallback: filesystem config for local development
-  try {
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    const configPath = path.join(process.cwd(), 'omada-config.json');
-    const data = await fs.readFile(configPath, 'utf8');
-    return JSON.parse(data);
-  } catch (e) {
-    return {};
-  }
-}
-
-async function writeConfig(config) {
-  // Only works in local dev (filesystem), skipped on Vercel
-  if (process.env.OMADA_BASE_URL) return;
-  try {
-    const fs = await import('fs/promises');
-    const path = await import('path');
-    const configPath = path.join(process.cwd(), 'omada-config.json');
-    await fs.writeFile(configPath, JSON.stringify(config, null, 2));
-  } catch (e) {
-    console.warn('[Omada] Could not write config file:', e.message);
-  }
+function readConfig() {
+  return { ...OMADA_CONFIG };
 }
 
 function buildBaseUrl(raw) {
@@ -60,12 +34,7 @@ async function getValidToken(config) {
   if (cachedToken && Date.now() < cachedTokenExpiry) {
     return cachedToken;
   }
-  // Check file-based cache
-  if (config.accessToken && config.tokenExpiry && Date.now() < config.tokenExpiry) {
-    cachedToken = config.accessToken;
-    cachedTokenExpiry = config.tokenExpiry;
-    return config.accessToken;
-  }
+  // No file-based cache with hardcoded config
 
   const sanitizedBaseUrl = buildBaseUrl(config.baseUrl);
   const safeOmadacId = (config.omadacId || '').trim();
@@ -100,9 +69,6 @@ async function getValidToken(config) {
     const expiry = Date.now() + ((data.result.expiresIn || 7200) * 1000 * 0.9); // 90% of stated expiry
     cachedToken = newToken;
     cachedTokenExpiry = expiry;
-    config.accessToken = newToken;
-    config.tokenExpiry = expiry;
-    await writeConfig(config);
     console.log('[Omada] Token obtained successfully');
     return newToken;
   }
@@ -123,9 +89,6 @@ async function getValidToken(config) {
     const expiry = Date.now() + ((data2.result.expiresIn || 7200) * 1000 * 0.9);
     cachedToken = newToken;
     cachedTokenExpiry = expiry;
-    config.accessToken = newToken;
-    config.tokenExpiry = expiry;
-    await writeConfig(config);
     console.log('[Omada] Token obtained via fallback');
     return newToken;
   }
@@ -137,17 +100,12 @@ export async function POST(request) {
   try {
     const body = await request.json();
     const { action } = body;
-    let config = await readConfig();
+    const config = readConfig();
 
     if (action === 'updateConfig') {
-      const { baseUrl, omadacId, clientId, clientSecret, siteId } = body;
-      config = { ...config, baseUrl, omadacId, clientId, clientSecret, siteId };
-      delete config.accessToken;
-      delete config.tokenExpiry;
       cachedToken = null;
       cachedTokenExpiry = 0;
-      await writeConfig(config);
-      return NextResponse.json({ errorCode: 0, msg: 'Config saved on server' });
+      return NextResponse.json({ errorCode: 0, msg: 'Config refreshed (hardcoded)' });
     }
 
     if (!config.baseUrl || !config.clientId) {
@@ -266,7 +224,7 @@ export async function POST(request) {
 }
 
 export async function GET() {
-  const config = await readConfig();
+  const config = readConfig();
   return NextResponse.json({
     baseUrl: config.baseUrl || '',
     omadacId: config.omadacId || '',
